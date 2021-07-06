@@ -1,35 +1,43 @@
 library(shiny)
+library(shinydashboard)
 library(plotly)
 library(shinyjs)
 
-ui <- shinyUI(
-  fluidPage(
-    useShinyjs(),
-    # code to reset plotlys event_data("plotly_click", source="A") to NULL -> executed upon action button click
-    # note that "A" needs to be replaced with plotly source string if used
-    extendShinyjs(text = "shinyjs.resetClick = function() { Shiny.onInputChange('.clientValue-plotly_legendclick-A', 'null'); }"),
-    actionButton("reset", "Reset plotly click value"),
-    plotlyOutput("plot"),
-    shiny::fluidRow(
-      
-      shiny::column(6, verbatimTextOutput("clickevent")),
-      shiny::column(6, verbatimTextOutput("legendclickevent"))
-    )
-    
+ui <- shiny::fluidPage(
+  useShinyjs(),
+  fluidRow(
+    column(4,
+           shiny::fluidRow(
+             shiny::column(12,
+                           shiny::selectInput(
+                             multiple = TRUE,
+                             inputId="filterRange",
+                             label="flags",
+                             choices=c("error","info","warn"),
+                             selected=c("error","info","warn")
+                             )
+                           ),
+             shiny::column(6, verbatimTextOutput("legendclickevent")),
+             shiny::column(6, verbatimTextOutput("activefilters")),
+             shiny::column(6, verbatimTextOutput("selected"))
+           )
+           ),
+    column(8,
+           plotlyOutput("plot")
+           )
   )
+  
 )
 
 clicks<-reactiveValues(legend = NULL, plot=NULL)
 
-filtering <- reactiveValues(warn=NULL)
+filtering <- reactiveValues(all_filters=NULL, registered=0)
 
-server <- shinyServer(function(input, output) {
-  
-  
+server <- shinyServer(function(input, output, session) {
   # Example from plotly
   fig <- economics
   
-  color_paxlette <- RColorBrewer::brewer.pal(dim(economics)[2], "Dark2")
+  color_palette <- RColorBrewer::brewer.pal(dim(economics)[2], "Dark2")
   
   fig <- fig %>% tidyr::gather(variable, value, -date)
   
@@ -37,12 +45,23 @@ server <- shinyServer(function(input, output) {
   
   output$plot <- renderPlotly({
     
-    if (!is.null(filtering$warn)) {
-      for (date_clicked in filtering$warn$x) {
-        smaller <- as.Date(date_clicked, origin = "1970-01-01") - (2.5*365)
-        bigger <- as.Date(date_clicked, origin = "1970-01-01") + (2.5*365)
-        fig <- fig %>%
-          dplyr::filter(!(date > smaller & date < bigger))
+    if (!is.null(filtering$all_filters)) {
+      for (filterclass in names(filtering$all_filters)) {
+        if (length(filtering$all_filters[[filterclass]]) > 0) {
+          for (filtersubclass in filtering$all_filters[[filterclass]]) {
+            
+            if (filtersubclass$uid == "range") {
+              for (i in seq_along(filtersubclass$x)) {
+                smaller <- as.Date(filtersubclass$ids[i], origin = "1970-01-01")
+                bigger <- as.Date(filtersubclass$customdata[i], origin = "1970-01-01")
+                fig <- fig %>%
+                  dplyr::filter(!(date > smaller & date < bigger))
+                
+              }
+            }
+            
+          }
+        }
       }
       figure_data <- fig
     } else {
@@ -59,7 +78,7 @@ server <- shinyServer(function(input, output) {
     })
     
     # create flag data with errors, warnings and infos
-    
+    flags <- c("error","warn","warn","info","info","warn","warn","info","error","error")
     flag_data = tidyr::tibble(data.frame(
       date=vapply(c(
         "1970-01-01",
@@ -73,62 +92,151 @@ server <- shinyServer(function(input, output) {
         "2010-01-01",
         "2015-01-01"
       ), as.Date, FUN.VALUE = as.Date("1970-01-01")),
+      from =vapply(c(
+        "1967-07-01",
+        "1975-01-01",
+        "1980-01-01",
+        "1985-01-01",
+        "1990-01-01",
+        "1995-01-01",
+        "2000-01-01",
+        "2005-01-01",
+        "2010-01-01",
+        "2013-07-01"
+      ), as.Date, FUN.VALUE = as.Date("1970-01-01")),
+      to = vapply(c(
+        "1973-06-30",
+        "1975-01-01",
+        "1980-01-01",
+        "1985-01-01",
+        "1990-01-01",
+        "1995-01-01",
+        "2000-01-01",
+        "2005-01-01",
+        "2010-01-01",
+        "2017-06-30"
+      ), as.Date, FUN.VALUE = as.Date("1970-01-01")),
       value=rep(10,10),
       variable=rep("flag",10),
-      text=c("error","warn","warn","info","info","warn","warn","info","error","error"),
+      text=flags,
+      visible=unlist(lapply(flags, function(x){
+        ifelse(x %in% names(filtering$all_filters$range), "legendonly", TRUE)
+      })),
       id=rep(6, 10)
     ))
+    
     # format the date correctly again
     flag_data$date <- as.Date(flag_data$date,origin = "1970-01-01")
+    # flag_data$from <- as.Date(flag_data$from,origin = "1970-01-01")
+    # flag_data$to <- as.Date(flag_data$to,origin = "1970-01-01")
     
-      # create a marker plot
-    fig1 <- flag_data %>% plot_ly(
+    # create a marker plot
+    
+    color_arr = c(error = "red",info = "blue",warn = "orange")
+    figure_list2 <- lapply(unique(flag_data$text), function(flag_value){
+      
+      filtered_data <- flag_data %>% dplyr::filter(text == flag_value);
+      
+    fig1 <- plot_ly(
+      data = filtered_data,
       x = ~date,
       y = ~value,
       text=~text,
-      color=~text,
-      colors=c("red","blue","orange"),
-      type='scatter',
+      # color=~text,
+      visible=~visible,
+      name=flag_value,
+      # colors=color_arr,
+      type="scatter",
       mode="markers+text",
       marker = list(
         color = '#ffffff',
         size = 20,
         line = list(
-          width = 1
+          width = 1,
+          color=color_arr[flag_value]
         ),
         symbol = 'square'
       ),
-      textposition = "center center",
+      uid="range",
+      ids=~from,
+      customdata=~to,
+      textposition = "middle center",
       textfont = list(
         family = "sans serif",
         size = 10,
-        name="flag",
         color=toRGB("grey50")
-      ) %>% add_trace()
-    )
+      )
+    ) %>% layout(yaxis=list(
+      visible=FALSE
+     
+    ))
+    })
+      
+      
     
     #---- plotting ----
-    all_plots <- c(figure_list, list(fig1))
-    fig_sub <- subplot(all_plots, nrows=6, shareX = TRUE)
+    all_plots <- c(figure_list, figure_list2)
+    fig_sub <- subplot(all_plots, nrows=8, shareX = TRUE)
+    # cat(filtering$registered)
+    # if (filtering$registered == 2) {
+      # return(fig_sub)
+    # } else {
+      # filtering$registered <- filtering$registered + 1
+      return(fig_sub %>% event_register("plotly_legendclick") %>% event_register("plotly_relayout"))
+    # }
     
-    return(fig_sub %>% event_register("plotly_legendclick"))
   })
   
   observeEvent(event_data("plotly_legendclick"), {
-    if (is.null(filtering$warn)) {
-      filtering$warn <- event_data("plotly_legendclick")
-    } else {
-      filtering$warn <- NULL
-    }
+      
+      click_data <- event_data("plotly_legendclick");
+      
+      if (click_data$mode == "markers+text") {
+        
+        class = unique(click_data$uid);
+        subclass = unique(click_data$text);
+        
+        # ANY FILTERS OF THIS CLASS?
+        if(!is.null(filtering$all_filters[[class]])){
+          # no filter for subclass
+          if (is.null(filtering$all_filters[[class]][[subclass]])){
+            cat("no filtering for subclass", subclass)
+            filtering$all_filters[[class]][[subclass]] <- click_data
+          # filter for subclass
+          } else {
+            # RESET SPECIFIC SUBFILTER
+            filtering$all_filters[[class]][[subclass]] <- NULL
+          }
+        # set up the filtering for this class
+        } else {
+          filtering$all_filters[[class]] <- c()
+          filtering$all_filters[[class]][[subclass]] <- click_data
+        }
+        
+        if (class == "range") {
+          input$filterRange
+          updateSelectInput(session, "filterRange",
+                            selected = names(filtering$all_filters[[class]]))
+        }
+        
+      }
+      
   })
   
   output$legendclickevent <- renderPrint({
     event_data("plotly_legendclick")
   })
+  output$selected <- renderPrint({
+    event_data("plotly_relayout")
+  })
   
-  output$clickevent <- renderPrint({
-    event_data("plotly_click")
-  })  
+  output$activefilters <- renderPrint({
+    
+    paste(vapply(names(filtering$all_filters), function(x){
+      paste(paste0(x,": !"),paste(names(filtering$all_filters[[x]]), collapse=", !")) 
+    }, rep("", length(filtering$all_filters))), collapse = "\n")
+    
+  })
   
   observeEvent(input$reset, {
     js$resetClick()
