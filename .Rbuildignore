@@ -1,0 +1,4 @@
+.gitignore
+inst/ignore/*
+^.*\.Rproj$
+^\.Rproj\.user$

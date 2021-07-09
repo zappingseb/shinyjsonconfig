@@ -1,104 +1,155 @@
-#
-# This is a Shiny web application. You can run the application by clicking
-# the 'Run App' button above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
-
 library(shiny)
-library(purrr)
+library(shinydashboard)
+library(plotly)
 library(shinyjs)
 
+source("plotly_module.R")
 
-config_generator <- function() {
-    Sys.sleep(2)
-    shinyjs::runjs(
-        'Shiny.setInputValue("loading", 1, {priority: "event"});'
-    )
-    return(
-        list(
-            merge_test = "y",
-            merge_test3 = "xxy",
-            merge_test4 = "xxxy",
-            merge_test5 = "xxxy",
-            merge_test6 = "xxxy",
-            merge_test7 = "xxxy",
-            merge_test8 = "xxxy",
-            merge_test9 = "xxxy",
-            merge_test10 = "xxxy",
-            merge_test11 = "xxxy",
-            merge_test12 = "xxxy",
-            merge_test13 = "xxxy",
-            merge_test14 = "xxxy",
-            merge_test15 = "xxxy",
-            merge_test16 = "xxxy",
-            merge_test17 = "xxxy"
-        )
-    )
-}
+ui <- shiny::fluidPage(
+  useShinyjs(),
+  fluidRow(
+    column(4,
+           shiny::fluidRow(
+             shiny::column(12,
+                           shiny::selectInput(
+                             multiple = TRUE,
+                             inputId="filterRange",
+                             label="flags",
+                             choices=c("error","info","warn"),
+                             selected=c("error","info","warn")
+                             )
+                           ),
+             shiny::column(6, verbatimTextOutput("legendclickevent")),
+             shiny::column(6, verbatimTextOutput("activefilters")),
+             shiny::column(6, verbatimTextOutput("selected"))
+           )
+           ),
+    column(8,
+           plotlyUI("final_plot")
+           )
+  )
 
-source(file = "ui_by_json.R");
-
-# Define UI for application that draws a histogram
-ui <- fluidPage(
-    useShinyjs(),
-    # Application title
-    titlePanel("Old Faithful Geyser Data"),
-    
-    # Sidebar with a slider input for number of bins
-    sidebarLayout(
-        sidebarPanel(
-            # Loading header
-            tags$head(tags$style(type="text/css", "
-             #loadmessage {
-               position: fixed;
-               top: 0px;
-               left: 0px;
-               width: 100%;
-               padding: 5px 0px 5px 0px;
-               text-align: center;
-               font-weight: bold;
-               font-size: 100%;
-               color: #000000;
-               background-color: #CCFF66;
-               z-index: 105;
-             }
-          ")),
-            div(style="display:none", numericInput(inputId = "loading", label = "label", value = 0, width = "0")),
-            sliderInput("bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30),
-            conditionalPanel(condition="input.loading < 1",
-                             tags$div("Loading...",id="loadmessage"))
-        ),
-        
-        # Show a plot of the generated distribution
-        mainPanel(
-            plotOutput("distPlot"),
-            # UI described by configufile
-            uiByJSONUi("configuredUI")
-        )
-    )
 )
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-    
-    output$distPlot <- renderPlot({
-        # generate bins based on input$bins from ui.R
-        x    <- faithful[, 2]
-        bins <- seq(min(x), max(x), length.out = input$bins + 1)
-        
-        # draw the histogram with the specified number of bins
-        hist(x, breaks = bins, col = 'darkgray', border = 'white')
-    })
-    
-    callModule(uiByJSON,"configuredUI", config_generator())
-}
+clicks<-reactiveValues(legend = NULL, plot=NULL)
 
-# Run the application
-shinyApp(ui = ui, server = server)
+
+server <- shinyServer(function(input, output, session) {
+  # Example from plotly
+  fig <- economics
+
+  color_palette <- RColorBrewer::brewer.pal(dim(economics)[2], "Dark2")
+
+  fig <- fig %>% tidyr::gather(variable, value, -date)
+
+  fig <- fig %>% transform(id = as.integer(factor(variable)))
+
+  all_plots <- reactive({
+
+    if (!is.null(filtering$all_filters)) {
+      for (filterclass in names(filtering$all_filters)) {
+        if (length(filtering$all_filters[[filterclass]]) > 0) {
+          for (filtersubclass in filtering$all_filters[[filterclass]]) {
+
+            if (filtersubclass$uid == "range") {
+              for (i in seq_along(filtersubclass$x)) {
+                smaller <- as.Date(filtersubclass$ids[i], origin = "1970-01-01")
+                bigger <- as.Date(filtersubclass$customdata[i], origin = "1970-01-01")
+                fig <- fig %>%
+                  dplyr::filter(!(date > smaller & date < bigger))
+
+              }
+            }
+
+          }
+        }
+      }
+      figure_data <- fig
+    } else {
+      figure_data <- fig
+    }
+    # make a list of plots, because else we cannot combine it with
+    # the flag plot
+    figure_list <- lapply(unique(figure_data$id),function(i) {
+      return(figure_data %>% dplyr::filter(id == i) %>%
+               plot_ly(x = ~date, y = ~value) %>%
+               add_lines(
+                 line=list(color = color_palette[i]), name=unique(figure_data$variable)[i])
+      )
+    })
+
+    flag_data <- example_data_flag(names(filtering$all_filters$range))
+
+
+
+    # create a marker plot
+
+    color_arr = c(error = "red",info = "blue",warn = "orange")
+    figure_list2 <- lapply(unique(flag_data$text), function(flag_value){
+
+      filtered_data <- flag_data %>% dplyr::filter(text == flag_value);
+
+    fig1 <- plot_ly(
+      data = filtered_data,
+      x = ~date,
+      y = ~value,
+      text=~text,
+      # color=~text,
+      visible=~visible,
+      name=flag_value,
+      # colors=color_arr,
+      type="scatter",
+      mode="markers+text",
+      marker = list(
+        color = '#ffffff',
+        size = 20,
+        line = list(
+          width = 1,
+          color=color_arr[flag_value]
+        ),
+        symbol = 'square'
+      ),
+      uid="range",
+      ids=~from,
+      customdata=~to,
+      textposition = "middle center",
+      textfont = list(
+        family = "sans serif",
+        size = 10,
+        color=toRGB("grey50")
+      )
+    ) %>% layout(yaxis=list(
+      visible=FALSE
+
+    ))
+    })
+
+
+
+    #---- plotting ----
+    return(c(figure_list, figure_list2))
+
+  })
+
+
+  filtering <- callModule(module = plotlyModule, id = "final_plot", all_plots());
+
+  output$legendclickevent <- renderPrint({
+    event_data("plotly_legendclick")
+  })
+
+  output$selected <- renderPrint({
+    event_data("plotly_relayout")
+  })
+
+  output$activefilters <- renderPrint({
+
+    paste(vapply(names(filtering$all_filters), function(x){
+      paste(paste0(x,": !"),paste(names(filtering$all_filters[[x]]), collapse=", !"))
+    }, rep("", length(filtering$all_filters))), collapse = "\n")
+
+  })
+
+})
+
+shinyApp(ui, server)

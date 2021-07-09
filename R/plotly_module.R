@@ -10,9 +10,9 @@ plotlyUI <- function(id) {
 
 
 plotlyModule <- function(input, output, session, all_plots) {
-  
+
   filtering <- reactiveValues(all_filters=NULL, registered=0)
-  
+
   output$plot <- plotly::renderPlotly({
     fig_sub <- subplot(all_plots, nrows=8, shareX = TRUE)
     # cat(filtering$registered)
@@ -22,16 +22,16 @@ plotlyModule <- function(input, output, session, all_plots) {
     # filtering$registered <- filtering$registered + 1
     return(fig_sub %>% event_register("plotly_legendclick") %>% event_register("plotly_relayout"))
   })
-  
+
   observeEvent(event_data("plotly_legendclick"), {
-    
+
     click_data <- event_data("plotly_legendclick");
-    
+
     if (click_data$mode == "markers+text") {
-      
+
       class = unique(click_data$uid);
       subclass = unique(click_data$text);
-      
+
       # ANY FILTERS OF THIS CLASS?
       if(!is.null(filtering$all_filters[[class]])){
         # no filter for subclass
@@ -48,16 +48,16 @@ plotlyModule <- function(input, output, session, all_plots) {
         filtering$all_filters[[class]] <- c()
         filtering$all_filters[[class]][[subclass]] <- click_data
       }
-      
+
       if (class == "range") {
         input$filterRange
         updateSelectInput(session, "filterRange",
                           selected = names(filtering$all_filters[[class]]))
       }
-      
+
     }
-    
+
   })
-  
+
   return(filtering)
 }

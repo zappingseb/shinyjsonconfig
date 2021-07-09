@@ -1,0 +1,5 @@
+linters: with_defaults(
+  line_length_linter(80), 
+  camel_case_linter = NULL,
+  object_name_linter(c("snake_case", "lowercase", "CamelCase", "camelCase"))
+  )
