@@ -2,6 +2,9 @@
 #' @import shiny
 #' @importFrom uuid UUIDgenerate
 #'
+#' @details found the way to construct this class at StackOverflow
+#' https://stackoverflow.com/a/60801574/4663704
+#'
 #' @examples
 #'
 #' appclass <- NumericLimiter$new(min = 0, max = 1, type = "range")
