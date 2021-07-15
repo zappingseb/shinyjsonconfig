@@ -2,7 +2,7 @@
 #'
 #' @return economics data from ggplot2
 #'
-#' @importFrom ggplot2 economics
+#' @import ggplot2
 #' @export
 #' @author Sebastian Engel-Wolf\url{mailto:sebastian@@mail-wolf.de}
 example_data_plot <- function(){

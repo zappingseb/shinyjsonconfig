@@ -1,7 +1,6 @@
 #' @details
 #' This package is used to generate a data filtering app
 #' @import testthat
-#' @import lintr (>2.0.1)
 #' @keywords internal
 "_PACKAGE"
 

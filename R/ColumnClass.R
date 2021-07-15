@@ -15,16 +15,17 @@ ColumnClass <- R6Class(
       stopifnot(helper_is.Date(x))
       stopifnot(is.character(name))
 
-      private$x <- x
-      private$y <- y
+      private$x_val <- x
+      private$y_val <- y
       private$name <- name
+      private$filter <- GenericFilter$new()
     },
     set_x = function(x) {
       stopifnot(helper_is.Date(x))
-      private$x <- x
+      private$x_val <- x
     },
     set_y = function(y) {
-      private$y <- y
+      private$y_val <- y
     },
     get_filter_module = function() {
       return(
@@ -36,13 +37,13 @@ ColumnClass <- R6Class(
     }
   ),
   private = list(
-    x = NULL,
-    y = NULL,
+    x_val = NULL,
+    y_val = NULL,
     name = NULL,
-    filter = Filter$new()
+    filter = NULL
   ),
   active = list(
-    x = function() {return(private$x)},
-    y = function() {return(private$y)}
+    x = function() {return(private$x_val)},
+    y = function() {return(private$y_val)}
   )
 )

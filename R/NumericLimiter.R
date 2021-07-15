@@ -1,3 +1,5 @@
+#' Single numeric filter - ui and server
+#'
 #' @import R6
 #' @import shiny
 #' @importFrom uuid UUIDgenerate
@@ -7,7 +9,7 @@
 #'
 #' @examples
 #'
-#' appclass <- NumericLimiter$new(min = 0, max = 1, type = "range")
+#' appclass <- NumericLimiter$new(min = 0, max = 1)
 #'
 #'
 #' # UI
@@ -37,56 +39,106 @@
 NumericLimiter <- R6Class(
   "NumericLimiter",
   public = list(
-    initialize = function(type = "eq", min = 0, max = 1){
-      stopifnot(type %in% c("eq", "gt", "lt", "range"))
-
+    #' @description
+    #' Create a NumericLimiter object.
+    #' @param min (`numeric`) The lowest value the filter allows
+    #' @param max (`numeric`) The highest value the filter allows
+    #' @md
+    #' @return A new `Person` object.
+    initialize = function(min = 0, max = 1) {
+      stopifnot(is.numeric(min) && !is.na(min))
+      stopifnot(is.numeric(max) && !is.na(max))
       private$id_input <- uuid::UUIDgenerate()
       private$min$value <- min
       private$max$value <- max
-      private$type <- type
-      private$has_min <- (type %in% c("eq", "lt", "range"))
-      private$has_min_comp <- (type %in% c("lt", "range"))
-      private$has_max <- (type %in% c("gt", "range"))
     },
-    get_ui = function(ns = NS(NULL)){
+    #' @description
+    #' numeric filter user interace
+    #' @param ns (`function`) Namespace function that gets used
+    #'   internally
+    #' @return `shiny::fluidRow` painting the
+    #'   filter to select a minimum / maximum value
+    #' @md
+    get_ui = function(ns = NS(NULL)) {
       ns <- shiny::NS(ns(private$id_input))
 
-      shiny::fluidRow(
-        if (private$has_min) {
-          column(
-            6,
-            if (private$has_min_comp) {
+      print(paste("INUI:", ns("type")))
+      base_id <- ns("");
 
+      shiny::fluidRow(
+        id = substr(base_id, 1, nchar(base_id) - 1),
+        column(4,
+               selectInput(
+                 inputId = ns("type"),
+                 choices = list(
+                   "no filtering" = "no-filter",
+                   "equal to" = "eq",
+                   "greater than" = "gt",
+                   "lower than" = "lt",
+                   "inside range" = "range"
+                 ),
+                 label = "Filter method"
+               )
+        ),
+        # minimum value selector
+        conditionalPanel(
+          condition = paste0(paste0("[", toString(paste0("'",
+            c("eq", "gt", "range"), "'")), "]"), ".includes(input.type)"),
+          ns = ns,
+          column(
+            4,
+            conditionalPanel(
+              condition = paste0(paste0("[", toString(paste0("'",
+                c("gt", "range"), "'")), "]"), ".includes(input.type)"),
+              ns = ns,
               selectInput(ns("min_select"),
                           choices = c(">", ">="),
                           selected = c(">"),
                           multiple = FALSE,
-                          label=paste("Select", ifelse(private$type=="range", "lower", ""), "comparison")
+                          label = paste("Select comparison")
                           )
-            },
-              numericInput(ns("min_value"), value = private$min$value, label = "Value")
+            ),
+            module_ui_value_limit(id = ns("min_value"),
+                                  value = private$min$value)
           )
-        },
-
-        if (private$has_max) {
+        ),
+        # maximum value selector
+        conditionalPanel(
+          condition = paste0(paste0("[", toString(paste0("'",
+            c("lt", "range"), "'")), "]"), ".includes(input.type)"),
+          ns = ns,
           column(
-            6,
+            4,
             selectInput(ns("max_select"),
                         choices = c("<", "<="),
                         selected = "<",
                         multiple = FALSE,
-                        label=paste("Select", ifelse(private$type=="range", "upper", ""), "comparison")
+                        label = paste("Select comparison")
             ),
-            numericInput(ns("max_value"), value = private$max$value, label = "Value")
+            module_ui_value_limit(id = ns("max_value"),
+                                  value = private$max$value)
           )
-        }
+        )
       )
 
     },
-    get_server = function(){
-
-      callModule(private$server, id = private$id_input)
-
+    #' @description
+    #' shiny server function calling the module
+    #'
+    #' @return a `shiny::reactive` with the following
+    #' list
+    #' * **type** - inputtype
+    #' * **min** - lower value selected
+    #' * **min** - lower comparison selected
+    #' * **max** - upper value selected
+    #' * **max** - upper comparison selected
+    #' @md
+    get_server = function(session) {
+      moduleServer(
+        id = private$id_input,
+        module = private$server,
+        session = session
+      )
     }
   ),
   private = list(
@@ -99,30 +151,42 @@ NumericLimiter <- R6Class(
       type = "eq",
       value = 1
     ),
-    has_min = TRUE,
-    has_min_comp = FALSE,
-    has_max = FALSE,
     id_input = NULL,
     server = function(input, output, session) {
 
-      return(
-        reactive({
-          list(
-            type = private$type,
-            min = ifelse(private$has_min, input$min_value, -Inf),
-            min_compare = ifelse(private$has_min_comp, input$min_select, ""),
-            max = ifelse(private$has_max, input$max_value, Inf),
-            max_compare = ifelse(private$has_max, input$max_select, "")
-          )
+      print(paste("INserver:", session$ns("type")))
+      print(names(input))
+      min_value <- callModule(
+        module_value_limit,
+        id = "min_value",
+        border_value = c(private$min$value, private$max$value)
+      );
+      max_value <- callModule(
+        module_value_limit,
+        id = "max_value",
+        border_value = c(private$min$value, private$max$value)
+      );
 
-        })
+      has_min <- reactive(input$type %in% c("eq", "gt", "range"))
+      has_min_comp <- reactive(input$type %in% c("gt", "range"))
+      has_max <- reactive(input$type %in% c("lt", "range"))
+
+      return(
+          reactive({
+            print(paste("inputtype", input[[session$ns("type")]]))
+            if (length(input$type) > 0) {
+              list(
+                type = input$type,
+                min = ifelse(has_min(), min_value, private$min$value),
+                min_compare = ifelse(has_min_comp(), input$min_select, ifelse(
+                  input$type == "eq", "=", ">=")),
+                max = ifelse(has_max(), max_value, private$max$value),
+                max_compare = ifelse(has_max(), input$max_select, "<=")
+              )
+            }
+          })
       )
 
-    }
-  ),
-  active = list(
-    name = function(){
-      return(private$name)
     }
   )
 )
